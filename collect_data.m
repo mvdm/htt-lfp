@@ -1,7 +1,7 @@
 %% set path
 restoredefaultpath; % start from scratch
 addpath(genpath('C:\Users\mvdm\Documents\GitHub\vandermeerlab\code-matlab\shared')); % clone from GitHub
-
+addpath(genpath('C:\Users\mvdm\Documents\GitHub\htt-lfp'));
 %% params
 cfg_master = [];
 cfg_master.debug = 0;
@@ -9,8 +9,14 @@ cfg_master.base_fp = 'C:\data\ros-data';
 cfg_master.theta = [5.5 8.5];
 cfg_master.lowgamma = [30 45]; % avoid notch filter
 cfg_master.highgamma = [55 80];
+cfg_master.pbins = -pi:pi/18:pi; % phase bins for cross-freq coupling
 
 what = {'theta', 'lowgamma', 'highgamma'}; % freqs to process, note must have freq ranges defined in cfg_master
+
+cfg_filter = [];
+cfg_filter.type = 'fdesign';
+cfg_filter.order = 10;
+cfg_filter.f = cfg_master.theta;
 
 %% get the list of folders we need to process
 cd(cfg_master.base_fp);
@@ -51,7 +57,7 @@ for iS = 1:nSessions
         
         % extract power and peak frequency in requested bands
         this_pow = [];
-        for iW = 1:length(what)
+        for iW = 1:length(what) % loop over freq bands
             
             [this_pf, this_pv, this_pa] = FindPeak(P, F, cfg_master.(what{iW}));
             
@@ -59,15 +65,49 @@ for iS = 1:nSessions
             ALL_data.(sd.subject).(sid).(what{iW}).(fe).pv(str2num(sd.time)) = this_pv;
             ALL_data.(sd.subject).(sid).(what{iW}).(fe).pa(str2num(sd.time)) = this_pa;
             
-        end
+        end % of freq band loop
         
-        % filter signal in requested bands
+        % get theta phase
+        cfg_filter.f = cfg_master.theta;
+        csc_theta = FilterLFP(cfg_filter, csc);
+        csc_theta.data = angle(hilbert(csc_theta.data));
         
+        % gamma powers
+        cfg_filter.f = cfg_master.lowgamma; csc_lowgamma = FilterLFP(cfg_filter, csc);
+        csc_lowgamma.data = abs(hilbert(csc_lowgamma.data));
+        
+        cfg_filter.f = cfg_master.highgamma; csc_highgamma = FilterLFP(cfg_filter, csc);
+        csc_highgamma.data = abs(hilbert(csc_highgamma.data));
         
         % theta-phase to gamma power coupling
-        
+        cfg_tc = []; cfg_tc.bins = cfg_master.pbins; cfg_tc.interp = 'nearest';
+        [~, t_lg, ~] = MakeTC_1D(cfg_tc, csc_theta.tvec, csc_theta.data, csc_lowgamma.tvec, csc_lowgamma.data);
+        [~, t_hg, ~] = MakeTC_1D(cfg_tc, csc_theta.tvec, csc_theta.data, csc_highgamma.tvec, csc_highgamma.data);
         
         % low-gamma power to high-gamma power cross-correlation
+        [lg_x_hg, xbin] = xcorr(csc_lowgamma.data, csc_highgamma.data, 300, 'coeff');
+        
+        if cfg_master.debug
+            subplot(222); clear h;
+            h(1) = plot(cfg_tc.bins(1:end-1), t_lg, 'b', 'LineWidth', 1); hold on;
+            h(2) = plot(cfg_tc.bins(1:end-1), t_hg, 'r', 'LineWidth', 1);
+            set(gca, 'FontSize', 18, 'XTick', -pi:pi/2:pi);
+            legend(h, {'lg', 'hg'}); legend boxoff;
+           
+            subplot(223);
+            plot(xbin, lg_x_hg); set(gca, 'FontSize', 18, 'XTick', -300:150:300);
+            
+            drawnow; pause; close all
+        end
+        
+        % store summary stats in big struct
+        ALL_data.(sd.subject).(sid).cfc.(fe).tlg(str2num(sd.time)) = (max(t_lg) - min(t_lg)) ./ (max(t_lg) + min(t_lg)); % cfc magnitude
+        ALL_data.(sd.subject).(sid).cfc.(fe).thg(str2num(sd.time)) = (max(t_hg) - min(t_hg)) ./ (max(t_hg) + min(t_hg)); % cfc magnitude
+        
+        [~, max_p] = max(t_lg);
+        ALL_data.(sd.subject).(sid).cfc.(fe).tlgp(str2num(sd.time)) = cfg_master.pbins(max_p);
+        [~, max_p] = max(t_hg);
+        ALL_data.(sd.subject).(sid).cfc.(fe).thgp(str2num(sd.time)) = cfg_master.pbins(max_p);
         
         
     end % of egfs

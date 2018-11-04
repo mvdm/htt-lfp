@@ -1,3 +1,5 @@
+% assumes collect_data.m has been run
+
 %%
 addpath('C:\Users\mvdm\Documents\GitHub\htt-lfp\util');
 
@@ -30,7 +32,7 @@ for iS = 1:length(subj)
                
                this_fl = fl{iFl};
                this_data = ALL_data.(this_subj).(this_cond).(this_freq).(this_fl);
-               this_data = cat(2, this_data.tlg, this_data.thg, this_data.pa); % note this determines labels
+               this_data = cat(2, this_data.tlg, this_data.thg, this_data.tlgp, this_data.thgp); % note this determines labels
                
                this_label = {this_subj, this_cond, this_freq, this_fl};
                
